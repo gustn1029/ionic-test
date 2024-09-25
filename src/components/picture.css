@@ -1,0 +1,10 @@
+.wrap {
+    padding-top: 100px;
+}
+
+.list {
+    display: flex; gap: 30px;
+}
+.item img{
+    width: 100px;
+}
