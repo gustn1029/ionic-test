@@ -7,12 +7,14 @@ import {
   IonPage,
   useIonToast,
   isPlatform,
-  IonLabel
+  IonLabel,
 } from "@ionic/react";
 import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
 import { Capacitor } from "@capacitor/core";
 import { closeCircleOutline, camera } from "ionicons/icons";
 import "./picture.css";
+import { useMutation } from "@tanstack/react-query";
+import { fetchUploadImage } from "../utils/http";
 
 interface CustomPhoto {
   webPath?: string;
@@ -28,61 +30,79 @@ interface ImageSize {
 const Picture: React.FC = () => {
   const [photo, setPhoto] = useState<CustomPhoto | null>(null);
   const [imageSize, setImageSize] = useState<ImageSize | null>(null);
+  const [resizedImageBlob, setResizedImageBlob] = useState<Blob | null>(null);
   const [present] = useIonToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const resizeImage = (file: Blob, targetSize: number = 224, quality: number = 0.9): Promise<Blob> => {
+  const imageUploadMutation = useMutation({
+    mutationFn: fetchUploadImage,
+    onSuccess: () => {
+      present({
+        message: "이미지가 성공적으로 업로드 되었습니다.",
+        duration: 2000,
+        position: "bottom",
+      });
+    },
+    onError: (error) => {
+      present({
+        message: `업로드 실패: ${error.message}`,
+        duration: 2000,
+        position: "bottom",
+      });
+    }
+  })
+
+  const resizeImage = (
+    file: Blob,
+    targetSize: number = 224,
+    quality: number = 0.7
+  ): Promise<Blob> => {
     return new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
+        const canvas = document.createElement("canvas");
         canvas.width = targetSize;
         canvas.height = targetSize;
-        const ctx = canvas.getContext('2d');
-        
+        const ctx = canvas.getContext("2d");
+
         if (!ctx) {
-          reject(new Error('Failed to get canvas context'));
+          reject(new Error("Failed to get canvas context"));
           return;
         }
 
-        const scale = Math.max(targetSize / img.width, targetSize / img.height);
-        const scaledWidth = img.width * scale;
-        const scaledHeight = img.height * scale;
-        const x = (targetSize - scaledWidth) / 2;
-        const y = (targetSize - scaledHeight) / 2;
-
-        ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+        // 이미지를 224x224로 조정
+        ctx.drawImage(img, 0, 0, targetSize, targetSize);
 
         canvas.toBlob(
           (blob) => {
             if (blob) {
               resolve(blob);
             } else {
-              reject(new Error('Failed to create blob'));
+              reject(new Error("Failed to create blob"));
             }
           },
-          'image/jpeg',
+          "image/jpeg",
           quality
         );
       };
-      img.onerror = () => reject(new Error('Failed to load image'));
+      img.onerror = () => reject(new Error("Failed to load image"));
       img.src = URL.createObjectURL(file);
     });
   };
 
   const formatSize = (bytes: number): string => {
-    if (bytes < 1024) return bytes + ' bytes';
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + ' KB';
-    else return (bytes / 1048576).toFixed(2) + ' MB';
+    if (bytes < 1024) return bytes + " bytes";
+    else if (bytes < 1048576) return (bytes / 1024).toFixed(2) + " KB";
+    else return (bytes / 1048576).toFixed(2) + " MB";
   };
 
   const checkPermissions = async (): Promise<void> => {
     if (Capacitor.isNativePlatform()) {
       const permission = await Camera.checkPermissions();
-      if (permission.camera !== 'granted') {
+      if (permission.camera !== "granted") {
         const request = await Camera.requestPermissions();
-        if (request.camera !== 'granted') {
-          throw new Error('카메라 권한이 필요합니다.');
+        if (request.camera !== "granted") {
+          throw new Error("카메라 권한이 필요합니다.");
         }
       }
     }
@@ -90,13 +110,13 @@ const Picture: React.FC = () => {
 
   const pickImage = async (): Promise<void> => {
     try {
-      if (isPlatform('hybrid')) {
+      if (isPlatform("hybrid")) {
         await checkPermissions();
         const image = await Camera.getPhoto({
           quality: 90,
           allowEditing: true,
           resultType: CameraResultType.Uri,
-          source: CameraSource.Prompt
+          source: CameraSource.Prompt,
         });
         await processImage(image);
       } else {
@@ -105,10 +125,12 @@ const Picture: React.FC = () => {
     } catch (error) {
       console.error("이미지 선택 중 오류 발생:", error);
       present({
-        message: `이미지 선택 중 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`,
+        message: `이미지 선택 중 오류: ${
+          error instanceof Error ? error.message : "알 수 없는 오류"
+        }`,
         duration: 3000,
-        position: 'bottom',
-        color: 'danger'
+        position: "bottom",
+        color: "danger",
       });
     }
   };
@@ -119,8 +141,8 @@ const Picture: React.FC = () => {
       const reader = new FileReader();
       reader.onload = async (e) => {
         const result = e.target?.result;
-        if (typeof result === 'string') {
-          await processImage({ webPath: result, format: 'jpeg' });
+        if (typeof result === "string") {
+          await processImage({ webPath: result, format: "jpeg" });
         }
       };
       reader.readAsDataURL(file);
@@ -147,27 +169,35 @@ const Picture: React.FC = () => {
 
       setImageSize({
         original: originalSize,
-        resized: resizedSize
+        resized: resizedSize,
       });
+
+      setResizedImageBlob(resizedBlob);
 
       console.log("Resized Image path:", resizedWebPath);
       present({
-        message: '이미지가 성공적으로 선택되었습니다.',
+        message: "이미지가 성공적으로 선택되었습니다.",
         duration: 2000,
-        position: 'bottom'
+        position: "bottom",
       });
     } else {
-      throw new Error('이미지 경로를 가져올 수 없습니다.');
+      throw new Error("이미지 경로를 가져올 수 없습니다.");
     }
   };
 
-  const removePhoto = (): void => {
+  const handleUploadImage = () => {
+    if(resizedImageBlob) {
+      imageUploadMutation.mutate(resizedImageBlob)
+    }
+  }
+
+  const handleRemoveImage = (): void => {
     setPhoto(null);
     setImageSize(null);
     present({
-      message: '이미지가 제거되었습니다.',
+      message: "이미지가 제거되었습니다.",
       duration: 2000,
-      position: 'bottom'
+      position: "bottom",
     });
   };
 
@@ -183,12 +213,16 @@ const Picture: React.FC = () => {
         />
         <IonButton onClick={pickImage}>
           <IonIcon icon={camera} slot="start" />
-          {photo ? '이미지 변경' : '이미지 선택'}
+          {photo ? "이미지 변경" : "이미지 선택"}
         </IonButton>
         {photo && photo.resizedWebPath && (
           <IonItem className="item">
-            <img src={photo.resizedWebPath} alt="Selected image" style={{ width: '224px', height: '224px', objectFit: 'cover' }} />
-            <IonButton onClick={removePhoto}>
+            <img
+              src={photo.resizedWebPath}
+              alt="Selected image"
+              style={{ width: "224px", height: "224px", objectFit: "cover" }}
+            />
+            <IonButton onClick={handleRemoveImage}>
               <IonIcon icon={closeCircleOutline} />
             </IonButton>
           </IonItem>
@@ -196,11 +230,13 @@ const Picture: React.FC = () => {
         {imageSize && (
           <IonItem>
             <IonLabel>
-              원본 이미지 크기: {imageSize.original}<br />
+              원본 이미지 크기: {imageSize.original}
+              <br />
               변환된 이미지 크기: {imageSize.resized}
             </IonLabel>
           </IonItem>
         )}
+        <IonButton onClick={handleUploadImage} disabled={resizedImageBlob === null}>등록</IonButton>
       </IonContent>
     </IonPage>
   );
